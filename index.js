@@ -7,6 +7,9 @@ const morgan = require('morgan');
 // Allow all origin requests to all backend express routes.
 app.use(cors())
 
+// Add ability to show static content and js 
+app.use(express.static('build'))
+
 /**
  * Middleware: Transforms JSON-data in requests to JS objects, 
  * so they are accessible in request.body
