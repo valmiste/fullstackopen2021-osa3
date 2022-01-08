@@ -1,8 +1,11 @@
 // Popular library for server on node
 const express = require("express");
 const app = express();
+const cors = require('cors')
 const morgan = require('morgan');
 
+// Allow all origin requests to all backend express routes.
+app.use(cors())
 
 /**
  * Middleware: Transforms JSON-data in requests to JS objects, 
@@ -31,17 +34,17 @@ app.use(morgan(':method :url :status :res[content-length] - :response-time ms :r
 
 let persons = [
   {
-    id: 1,
+    id: 1123124,
     name: "Ada Lovelace",
     number: "1111111111",
   },
   {
-    id: 2,
+    id: 223423,
     name: "Bull Mentula",
     number: "65434334",
   },
   {
-    id: 3,
+    id: 34235235,
     name: "Jeremy Roenikki",
     number: "33333333333",
   },
@@ -175,8 +178,8 @@ const unknownEndpoint = (request, response) => {
 
 app.use(unknownEndpoint)
 
-const PORT = 3002;
+const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
-  //console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
