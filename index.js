@@ -169,15 +169,16 @@ app.post("/api/persons", (request, response) => {
     });
 });
 
-app.get("/info", (request, response) => {
+app.get("/info", (request, response, next) => {
   const currentDate = new Date();
-  const amountOfItems = persons.length;
-  //console.log('date:', currentDate)
-
-  const htmlResponse = `<p> Phonebook has info for ${amountOfItems} people</p>\
-  <p> currentDate: ${currentDate} </p>`;
-
-  response.send(htmlResponse);
+  let amountOfItems;
+  const jees = Person.find({}).then(result => {
+    amountOfItems = result.length;
+    const htmlResponse = `<p> Phonebook has info for ${amountOfItems} people</p>\
+    <p> currentDate: ${currentDate} </p>`;
+    response.send(htmlResponse);
+  })
+  .catch(error => next(error))
 });
 
 /**
