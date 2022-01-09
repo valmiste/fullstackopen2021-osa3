@@ -5,7 +5,18 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 
-// Middlewares
+/**
+ * Middlewares
+ **/
+// Add ability to show static content and js
+app.use(express.static("build"));
+
+/**
+ * Transforms JSON-data in requests to JS objects,
+ * so they are accessible in request.body
+ *  */
+app.use(express.json());
+
 const cors = require("cors");
 const morgan = require("morgan");
 
@@ -14,15 +25,6 @@ const Person = require("./models/person");
 
 // Allow all origin requests to all backend express routes.
 app.use(cors());
-
-// Add ability to show static content and js
-app.use(express.static("build"));
-
-/**
- * Middleware: Transforms JSON-data in requests to JS objects,
- * so they are accessible in request.body
- *  */
-app.use(express.json());
 
 /**
  * Morgan middleware setup:
@@ -43,8 +45,19 @@ app.use(
   )
 );
 
-// Node native http server, not so flexible as Express.
-// const http = require('http')
+// Errorhandler middleware
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message);
+
+  if (error.name === "CastError") {
+    return response.status(400).send({ error: "malformatted id" });
+  }
+
+  next(error); // Send error to default Express errorhandler
+};
+
+// Errorhandler should be after other middleware registrations, except unknown route.
+app.use(errorHandler);
 
 let persons = [
   {
@@ -52,27 +65,12 @@ let persons = [
     name: "Ada Lovelace",
     number: "1111111111",
   },
-  // {
-  //   id: 223423,
-  //   name: "Bull Mentula",
-  //   number: "65434334",
-  // },
-  // {
-  //   id: 34235235,
-  //   name: "Jeremy Roenikki",
-  //   number: "33333333333",
-  // },
 ];
 
-// Node default http server version of get all endpoint:
-//   const app = http.createServer((request, response) => {
-//   response.writeHead(200, { 'Content-Type': 'text/plain' })
-//   response.end(JSON.stringify(persons))
-// })
-
-// app.get("/api/persons", (req, res) => {
-//   res.json(persons);
-// });
+// What to output on default path – likely is replaced by front ui build.
+app.get("/", (req, res) => {
+  res.send("<h1>Hi World</h1>");
+});
 
 // Get all notes through MongoDB.
 app.get("/api/persons", (req, res) => {
@@ -81,59 +79,49 @@ app.get("/api/persons", (req, res) => {
   });
 });
 
-app.get("/", (req, res) => {
-  res.send("<h1>Heippamaailma</h1>");
-});
-
-app.get("/api/persons/:id", (request, response) => {
+app.get("/api/persons/:id", (request, response, next) => {
   // Get url parameter via .params.
   const id = String(request.params.id);
 
-  // Person.find({id: id}).then(person => {
-  Person.findById(id).then(person => {
-    response.json(person)
-  }).catch(error => {
-    console.log('error', error)
-    response.status(404).end();
-  })  
+  Person.findById(id)
+    .then((person) => {
+      if (person) {
+        response.json(person);
+      } else {
+        response.status(404).end();
+      }
+    })
+    .catch((error) => next(error)); // Send to middleware, more specifically to errorhandler because we use an argument.
 });
 
-app.delete("/api/persons/:id", (request, response) => {
+app.put("/api/persons/:id", (request, response, next) => {
+  const body = request.body;
+  const person = {
+    name: body.name,
+    number: body.number,
+  };
+
+  // findByIdAndUpdate takes normal js object instead of one made via Person constructor, like post/save-usesuses.
+  Person.findByIdAndUpdate(request.params.id, person, { new: true })
+    .then((updatedPerson) => {
+      // new: true = we get updatedPerson back instead of pre-update one.
+      console.log("updatedPerson:", updatedPerson);
+      response.json(updatedPerson);
+    })
+    .catch((error) => next(error));
+});
+
+app.delete("/api/persons/:id", (request, response, next) => {
   const id = String(request.params.id);
 
-  Person.deleteOne({_id: id}).then(deletionResponse => {
-    console.log('deletionresponse: ', deletionResponse.deletedCount); 
-    response.status(204).end()
-  }).catch(error => { 
-    console.log(`could not delete with id ${id}, because error:`, error)
-    response.status(404).end()
-  })
-
-  // Not a standard but we should return either 204 or 404 here likely.
-  response.status(204).end();
+  Person.deleteOne({ _id: id })
+    .then((deletionResponse) => {
+      console.log("deletionresponse: ", deletionResponse.deletedCount);
+      // Not a standard but we should return either 204 or 404 here likely.
+      response.status(204).end();
+    })
+    .catch((error) => next(error));
 });
-
-// Helper function to create a next unique ID in sequence.
-const generateId = () => {
-  /**
-   * To get largest id, we create a new table with all IDs, and
-   * then turn it into values for Math.max using ...spread syntax.
-   * */
-  const maxId =
-    persons.length > 0 ? Math.max(...persons.map((person) => person.id)) : 0;
-  // Set unique id for new item to add.
-  return maxId + 1;
-};
-
-// Helper function to create an random ID.
-const generateRandomId = () => {
-  // Create a long enough random ID so it can work as unique ID.
-
-  const randomId = Number(String(Math.random()).substring(2, 10));
-  //console.log(randomId)
-  // Set unique id for new item to add.
-  return randomId;
-};
 
 app.post("/api/persons", (request, response) => {
   const requestBody = request.body;
@@ -172,21 +160,13 @@ app.post("/api/persons", (request, response) => {
       response.json(savedPerson); // We use toJSON-method here via .json()
     })
     .catch((error) => {
-      return response.status(400).json({
-        error: "error happened while saving to mongoDB:" + error,
-      }).end();
+      return response
+        .status(400)
+        .json({
+          error: "error happened while saving to mongoDB:" + error,
+        })
+        .end();
     });
-
-  // persons = persons.concat(newPerson);
-
-  // It's often useful in rest api bg debugging to check req headers.
-  //console.log("request headers", request.headers);
-
-  // It's good to log enough overall.
-  //console.log('New item added:', newPerson);
-
-  // response.json(newPerson);
-  //console.log('All persons after the post call:', persons)
 });
 
 app.get("/info", (request, response) => {
@@ -207,7 +187,6 @@ app.get("/info", (request, response) => {
 const unknownEndpoint = (request, response) => {
   response.status(404).send({ error: "unknown endpoint" });
 };
-
 app.use(unknownEndpoint);
 
 const PORT = process.env.PORT || 3002;
