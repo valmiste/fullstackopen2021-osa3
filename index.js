@@ -6,12 +6,6 @@ const express = require("express");
 const app = express();
 
 /**
- * Middlewares
- **/
-// Add ability to show static content and js
-app.use(express.static("build"));
-
-/**
  * Transforms JSON-data in requests to JS objects,
  * so they are accessible in request.body
  *  */
@@ -22,6 +16,9 @@ const morgan = require("morgan");
 
 // External models for dba access.
 const Person = require("./models/person");
+
+// Add ability to show static content and js
+app.use(express.static("build"));
 
 // Allow all origin requests to all backend express routes.
 app.use(cors());
@@ -44,20 +41,6 @@ app.use(
     ":method :url :status :res[content-length] - :response-time ms :req-body"
   )
 );
-
-// Errorhandler middleware
-const errorHandler = (error, request, response, next) => {
-  console.error(error.message);
-
-  if (error.name === "CastError") {
-    return response.status(400).send({ error: "malformatted id" });
-  }
-
-  next(error); // Send error to default Express errorhandler
-};
-
-// Errorhandler should be after other middleware registrations, except unknown route.
-app.use(errorHandler);
 
 let persons = [
   {
@@ -123,7 +106,7 @@ app.delete("/api/persons/:id", (request, response, next) => {
     .catch((error) => next(error));
 });
 
-app.post("/api/persons", (request, response) => {
+app.post("/api/persons", (request, response, next) => {
   const requestBody = request.body;
 
   // Require necessary fields in post calls.
@@ -133,22 +116,9 @@ app.post("/api/persons", (request, response) => {
     });
   }
 
-  // Do not accept if name already exists
-  let isPersonAlreadyInBook = persons.find((person) => {
-    return person.name === requestBody.name;
-  });
-
-  //console.log('isPersonAlreadyInBook:',  isPersonAlreadyInBook)
-  if (isPersonAlreadyInBook) {
-    return response.status(400).json({
-      error: "name must be unique",
-    });
-  }
-
   // If we create object manually like this,
   // we can prevent use of not valid data in json.
   const newPerson = new Person({
-    id: requestBody.id,
     name: requestBody.name,
     number: requestBody.number,
   });
@@ -156,30 +126,42 @@ app.post("/api/persons", (request, response) => {
   // This is how we send data to mongoDB - and after that send back to frontend.
   newPerson
     .save()
-    .then((savedPerson) => {
-      response.json(savedPerson); // We use toJSON-method here via .json()
+    .then((savedPerson) => { 
+      return savedPerson.toJSON(); // We use toJSON-method here via .json()
     })
-    .catch((error) => {
-      return response
-        .status(400)
-        .json({
-          error: "error happened while saving to mongoDB:" + error,
-        })
-        .end();
-    });
+    .then((savedAndFormattedPerson) => { // Promise chaining.
+      return response.json(savedAndFormattedPerson);
+    })
+    .catch((error) => next(error));
 });
 
 app.get("/info", (request, response, next) => {
   const currentDate = new Date();
   let amountOfItems;
-  const jees = Person.find({}).then(result => {
-    amountOfItems = result.length;
-    const htmlResponse = `<p> Phonebook has info for ${amountOfItems} people</p>\
+  const jees = Person.find({})
+    .then((result) => {
+      amountOfItems = result.length;
+      const htmlResponse = `<p> Phonebook has info for ${amountOfItems} people</p>\
     <p> currentDate: ${currentDate} </p>`;
-    response.send(htmlResponse);
-  })
-  .catch(error => next(error))
+      response.send(htmlResponse);
+    })
+    .catch((error) => next(error));
 });
+
+// Errorhandler middleware
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message);
+
+  if (error.name === "CastError") {
+    return response.status(400).send({ error: "malformatted id" });
+  } else if (error.name === "ValidationError") {
+    return response.status(400).json({ errorMessage: error.message });
+  }
+
+  next(error); // If it's not handled above, send the error to default Express errorhandler
+};
+// Errorhandler should be after other middleware registrations, except unknown route.
+app.use(errorHandler);
 
 /**
  * Middleware: we use it after the routes in code,
