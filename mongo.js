@@ -18,7 +18,6 @@ const personSchema = new mongoose.Schema({
   name: String,
   number: Number,
 });
-
 const Person = mongoose.model("Person", personSchema);
 
 const nameToAdd = process.argv[3];

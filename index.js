@@ -1,30 +1,16 @@
+// These are needed for some imports so load them first.
+require("dotenv").config();
+
 // Popular library for server on node
 const express = require("express");
 const app = express();
+
+// Middlewares
 const cors = require("cors");
 const morgan = require("morgan");
-const mongoose = require("mongoose");
 
-// MongoDB database access setup. 
-const mongoDbpassword = process.env.MONGOPASS;
-const url = `mongodb+srv://valmi:${mongoDbpassword}@cluster0.y3ezc.mongodb.net/phonebook-app?retryWrites=true&w=majority`;
-mongoose.connect(url);
-
-const personSchema = new mongoose.Schema({
-  name: String,
-  number: Number,
-});
-
-// Transform mongoDB results for person json - change id from obj to string, rename id property and delete __version.
-personSchema.set('toJSON', {
-  transform: (document, returnedObject) => {
-    returnedObject.id = returnedObject._id.toString()
-    delete returnedObject._id
-    delete returnedObject.__v
-  }
-})
-
-const Person = mongoose.model("Person", personSchema);
+// External models for dba access.
+const Person = require("./models/person");
 
 // Allow all origin requests to all backend express routes.
 app.use(cors());
@@ -91,11 +77,8 @@ let persons = [
 // Get all notes through MongoDB.
 app.get("/api/persons", (req, res) => {
   Person.find({}).then((persons) => {
-    console.log("persons:", persons);
-    res.json(persons)
-    mongoose.connection.close();
+    res.json(persons);
   });
-  
 });
 
 app.get("/", (req, res) => {
@@ -103,30 +86,30 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/persons/:id", (request, response) => {
-  //console.log(request.params);
-
   // Get url parameter via .params.
-  const id = Number(request.params.id);
+  const id = String(request.params.id);
 
-  const person = persons.find((person) => {
-    //console.log(person.id, typeof person.id, " ", id, typeof id);
-    return person.id === id;
-  });
-
-  if (person) {
-    response.json(person);
-  } else {
+  // Person.find({id: id}).then(person => {
+  Person.findById(id).then(person => {
+    response.json(person)
+  }).catch(error => {
+    console.log('error', error)
     response.status(404).end();
-  }
+  })  
 });
 
 app.delete("/api/persons/:id", (request, response) => {
-  const id = Number(request.params.id);
-  // Backendissä ei tällä hetkellä tietokantaa takana,
-  // joten jsonit elävät täällä muuttujissa.
-  persons = persons.filter((person) => person.id !== id);
+  const id = String(request.params.id);
 
-  // Ei täysin standardi, mutta yleensä deletestä palautetaan 204 tai 404.
+  Person.deleteOne({_id: id}).then(deletionResponse => {
+    console.log('deletionresponse: ', deletionResponse.deletedCount); 
+    response.status(204).end()
+  }).catch(error => { 
+    console.log(`could not delete with id ${id}, because error:`, error)
+    response.status(404).end()
+  })
+
+  // Not a standard but we should return either 204 or 404 here likely.
   response.status(204).end();
 });
 
@@ -166,6 +149,7 @@ app.post("/api/persons", (request, response) => {
   let isPersonAlreadyInBook = persons.find((person) => {
     return person.name === requestBody.name;
   });
+
   //console.log('isPersonAlreadyInBook:',  isPersonAlreadyInBook)
   if (isPersonAlreadyInBook) {
     return response.status(400).json({
@@ -175,13 +159,25 @@ app.post("/api/persons", (request, response) => {
 
   // If we create object manually like this,
   // we can prevent use of not valid data in json.
-  const newPerson = {
-    id: generateRandomId(),
+  const newPerson = new Person({
+    id: requestBody.id,
     name: requestBody.name,
     number: requestBody.number,
-  };
+  });
 
-  persons = persons.concat(newPerson);
+  // This is how we send data to mongoDB - and after that send back to frontend.
+  newPerson
+    .save()
+    .then((savedPerson) => {
+      response.json(savedPerson); // We use toJSON-method here via .json()
+    })
+    .catch((error) => {
+      return response.status(400).json({
+        error: "error happened while saving to mongoDB:" + error,
+      }).end();
+    });
+
+  // persons = persons.concat(newPerson);
 
   // It's often useful in rest api bg debugging to check req headers.
   //console.log("request headers", request.headers);
@@ -189,7 +185,7 @@ app.post("/api/persons", (request, response) => {
   // It's good to log enough overall.
   //console.log('New item added:', newPerson);
 
-  response.json(newPerson);
+  // response.json(newPerson);
   //console.log('All persons after the post call:', persons)
 });
 
